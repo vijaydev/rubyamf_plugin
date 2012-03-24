@@ -52,15 +52,24 @@ module RubyAMF
             obj.send("#{key}_will_change!")  #fosrias: flags the attribute to change with partial_updates
           #ASSOCIATION
           elsif reflection = obj.class.reflections[key.to_sym] # is it an association
-            case reflection.macro  
-            when :has_one
-              obj.send("set_#{key}_target", value) if value
-            when :belongs_to
-              obj.send("#{key}=", value) if value
-            when :has_many, :has_and_belongs_to_many
-              obj.send("#{key}").target = value if value
-            when :composed_of
-              obj.send("#{key}=", value) if value # this sets the attributes to the corresponding values
+            if ::ActiveRecord::VERSION::STRING < "3.1"
+              case reflection.macro
+              when :has_one
+                obj.send("set_#{key}_target", value) if value
+              when :belongs_to
+                obj.send("#{key}=", value) if value
+              when :has_many, :has_and_belongs_to_many
+                obj.send("#{key}").target = value if value
+              when :composed_of
+                obj.send("#{key}=", value) if value # this sets the attributes to the corresponding values
+              end
+            else
+              case reflection.macro
+              when :has_many, :has_and_belongs_to_many, :has_one
+                obj.association(key.to_sym).target = value if value
+              when :belongs_to, :composed_of
+                obj.send("#{key}=", value) if value # this sets the attributes to the corresponding values
+              end
             end
           elsif
              # build @methods hash
@@ -236,7 +245,11 @@ module RubyAMF
         instance_vars.each do |var| # this also picks up the eager loaded associations, because association called "has_many_assoc" has an instance variable called "@has_many_assoc"
           attr_name = var[1..-1]
           attr_name.to_camel! if ClassMappings.translate_case
-          new_object[attr_name] = obj.instance_variable_get(var)
+          if ::ActiveRecord::VERSION::STRING < "3.1"
+            new_object[attr_name] = obj.instance_variable_get(var)
+          else
+            new_object[attr_name] = obj.association_cache[attr_name.to_sym].target
+          end
         end
         methods.each do |method|
           attr_name = method.dup
